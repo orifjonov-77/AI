@@ -262,8 +262,32 @@ async def handle_incoming_message(event):
             logger.warning(f"Javob matni olinmadi, hech narsa yuborilmadi ({chat_id}).")
 
 
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is alive and running!")
+
+    def log_message(self, format, *args):
+        pass  # Health check loglarini ko'rsatmaslik
+
+
+def run_http_server():
+    port = int(os.getenv("PORT", "10000"))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Render uchun HTTP server {port}-portda ishga tushdi.")
+    server.serve_forever()
+
+
 async def main():
     logger.info("Telegram UserBot ishga tushirilmoqda...")
+    # Render port talabi uchun HTTP serverni alohida threadda ishga tushiramiz
+    threading.Thread(target=run_http_server, daemon=True).start()
+
     # client.start() orqali avtorizatsiya va ulanish tekshiriladi
     await client.start()
     
@@ -281,3 +305,4 @@ if __name__ == "__main__":
         logger.info("Bot to'xtatildi.")
     except Exception as e:
         logger.critical(f"Kutilmagan xatolik yuz berdi: {e}")
+
