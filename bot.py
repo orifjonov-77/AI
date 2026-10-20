@@ -114,11 +114,30 @@ def add_to_history(chat_id: int, role: str, text: str):
     chat_history[chat_id].append({"role": role, "text": text})
 
 
-async def get_gemini_reply(chat_id: int, new_message_text: str) -> str | None:
-    """Gemini AI orqali suhbat kontekstini inobatga olgan holda javob oladi."""
+# Gemini modellari (agar asosiy model 503 band bo'lsa, zaxira modellarga o'tadi)
+CANDIDATE_MODELS = [
+    GEMINI_MODEL,
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+# Dublikatlarni tozalash (tartibni saqlagan holda)
+MODELS_TO_TRY = list(dict.fromkeys([m for m in CANDIDATE_MODELS if m]))
+
+FALLBACK_MESSAGE = (
+    f"Assalomu alaykum! 😊 Men {OWNER_NAME}ning shaxsiy yordamchisiman. "
+    f"{OWNER_NAME} hozir band edilar, bo'shaganlarida albatta o'zlari javob yozadilar. "
+    f"Sizga qanday yordam bera olaman?"
+)
+
+
+async def get_gemini_reply(chat_id: int, new_message_text: str) -> str:
+    """Gemini AI orqali suhbat kontekstini inobatga olgan holda javob oladi.
+    Agar model 503 yoki boshqa sabab bilan band bo'lsa, zaxira modellarga o'tadi
+    va oxirgi chora sifatida do'stona zaxira javob qaytaradi."""
     if not ai_client:
         logger.error("Gemini mijozi mavjud emas.")
-        return None
+        return FALLBACK_MESSAGE
 
     # Tarixni tayyorlash
     contents = []
@@ -140,25 +159,30 @@ async def get_gemini_reply(chat_id: int, new_message_text: str) -> str | None:
         )
     )
 
-    try:
-        config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            temperature=0.7,
-        )
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        temperature=0.7,
+    )
 
-        response = await asyncio.to_thread(
-            ai_client.models.generate_content,
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=config,
-        )
+    # Modellarni ketma-ket sinab ko'ramiz
+    for model_name in MODELS_TO_TRY:
+        for attempt in range(2):  # Har bir modelni 2 martagacha urinib ko'rish
+            try:
+                response = await asyncio.to_thread(
+                    ai_client.models.generate_content,
+                    model=model_name,
+                    contents=contents,
+                    config=config,
+                )
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                logger.warning(f"Model '{model_name}' (urinish {attempt + 1}) xatolik berdi: {e}")
+                await asyncio.sleep(1)
 
-        if response and response.text:
-            return response.text.strip()
-        return None
-    except Exception as e:
-        logger.error(f"Gemini API bilan muloqotda xatolik yuz berdi: {e}")
-        return None
+    logger.error("Barcha Gemini modellari band yoki xatolik berdi. Zaxira xabar yuborilmoqda.")
+    return FALLBACK_MESSAGE
+
 
 
 from telethon.sessions import StringSession
